@@ -1,8 +1,6 @@
 
-import { Clerk } from '@clerk/clerk-sdk-node';
+import { verifyToken } from '@clerk/backend';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-const clerkClient = Clerk({ secretKey: process.env.CLERK_SECRET_KEY });
 
 export async function authenticate(req: VercelRequest, res: VercelResponse, optional = false): Promise<string | null> {
   const authHeader = req.headers.authorization;
@@ -14,7 +12,9 @@ export async function authenticate(req: VercelRequest, res: VercelResponse, opti
 
   const token = authHeader.split(' ')[1];
   try {
-    const { sub: userId } = await clerkClient.verifyToken(token);
+    const { sub: userId } = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY
+    });
     return userId;
   } catch (error) {
     console.error('Auth Error:', error);
