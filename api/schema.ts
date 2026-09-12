@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
-// Known shortlink domains to prevent self-referencing (R15 FIX)
-const SHORTLINK_DOMAINS = ['s.ihmorol.cv'];
+import { SHORTLINK_DOMAINS } from '../config.js';
 
 // Helper to check if URL might cause redirect loop
 const isSelfReferencing = (url: string): boolean => {

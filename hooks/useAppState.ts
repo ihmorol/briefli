@@ -3,9 +3,7 @@ import { ShortLink } from '../types';
 import { StorageService } from '../services/storageService';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '@clerk/clerk-react';
-
-// Hardcoded base URL (no settings table needed)
-const BASE_URL = 'https://s.ihmorol.cv/';
+import { BASE_URL } from '../config';
 
 export const useAppState = () => {
   const { success, error } = useToast();
