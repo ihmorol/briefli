@@ -1,6 +1,3 @@
 -- Add user_id column to links table
 alter table public.links add column user_id text;
 create index links_user_id_idx on public.links(user_id);
-
--- Optional: Add user_id column to settings table if you want per-user settings
--- alter table public.settings add column user_id text;

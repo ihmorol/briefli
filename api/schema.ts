@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
-// Known shortlink domains to prevent self-referencing (R15 FIX)
-const SHORTLINK_DOMAINS = ['s.ihmorol.cv'];
+import { SHORTLINK_DOMAINS } from '../config.js';
 
 // Helper to check if URL might cause redirect loop
 const isSelfReferencing = (url: string): boolean => {
@@ -32,8 +30,4 @@ export const LinkSchema = z.object({
 
 export const UpdateLinkSchema = LinkSchema.extend({
   id: z.string()
-});
-
-export const SettingsSchema = z.object({
-  baseUrl: z.string().url("Invalid URL format").refine(url => url.endsWith('/'), "Base URL must end with a slash")
 });

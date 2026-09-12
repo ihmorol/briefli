@@ -36,10 +36,6 @@ async function fetchWithRetry(
 }
 
 export const StorageService = {
-  checkMode: async (): Promise<boolean> => {
-    return false; // Database first
-  },
-
   getLinks: async (token?: string | null, type: 'public' | 'personalized' | 'all' = 'public', trash: boolean = false): Promise<ShortLink[]> => {
     try {
       const headers: HeadersInit = {};
