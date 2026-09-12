@@ -103,12 +103,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       case 'PUT': {
+        // SECURITY: modification requires a signed-in user (anonymous users
+        // previously passed the public-link permission check via userId=null)
+        if (!userId) {
+          return res.status(401).json({ error: 'Unauthorized - Login required' });
+        }
+
         const validation = UpdateLinkSchema.safeParse(req.body);
          if (!validation.success) {
            return res.status(400).json({ error: validation.error.issues[0].message });
         }
-        
-        const { id, slug, originalUrl, description, clicks, is_deleted } = validation.data;
+
+        const { id, slug, originalUrl, description, is_deleted } = validation.data;
         
         // Fetch existing to check permissions
         const { data: existing } = await supabase
@@ -139,11 +145,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
              }
         }
 
+        // SECURITY: `clicks` is a server-owned counter and is stripped from
+        // client-supplied update payloads
         const updates: any = {
             slug,
             original_url: originalUrl,
-            description,
-            clicks
+            description
         };
 
         // Handle Restore
@@ -162,6 +169,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       case 'DELETE': {
+        // SECURITY: modification requires a signed-in user (anonymous users
+        // previously passed the public-link permission check via userId=null)
+        if (!userId) {
+          return res.status(401).json({ error: 'Unauthorized - Login required' });
+        }
+
         const { id } = req.query;
         if (typeof id !== 'string') {
           return res.status(400).json({ error: 'ID required' });
@@ -178,7 +191,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
              return res.status(404).json({ error: 'Link not found' });
         }
 
-        // Authorized if: Public OR (Personalized AND Owned)
+        // Authorized if: Public (any signed-in user) OR (Personalized AND Owned).
+        // userId is guaranteed non-null by the 401 check above, so anonymous
+        // requests can no longer delete public links.
         const isAuthorized = !existing.is_personalized || (existing.is_personalized && existing.user_id === userId);
         
         if (!isAuthorized) {
