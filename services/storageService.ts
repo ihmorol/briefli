@@ -3,15 +3,19 @@ import { ShortLink, SlugSuggestionResponse } from '../types';
 
 const API_BASE = '/api';
 
-// R13 FIX: Retry helper with exponential backoff for transient network failures
+// R13 FIX: Retry helper with exponential backoff for transient network failures.
+// Only idempotent methods (GET/PUT/DELETE) are retried. POST gets a single
+// attempt: a timeout after the server already inserted the link would retry
+// into a guaranteed 409 (slug conflict) — or a silent double-insert.
 const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 500;
 
 async function fetchWithRetry(
   url: string, 
-  options: RequestInit = {}, 
-  retries = MAX_RETRIES
+  options: RequestInit = {}
 ): Promise<Response> {
+  const method = (options.method || 'GET').toUpperCase();
+  const retries = method === 'POST' ? 1 : MAX_RETRIES;
   let lastError: Error | null = null;
   
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -37,22 +41,22 @@ async function fetchWithRetry(
 
 export const StorageService = {
   getLinks: async (token?: string | null, type: 'public' | 'personalized' | 'all' = 'public', trash: boolean = false): Promise<ShortLink[]> => {
-    try {
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers: HeadersInit = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      let url = `${API_BASE}/links?trash=${trash}`;
-      if (type !== 'all') {
-        url += `&type=${type}`;
-      }
-
-      const response = await fetchWithRetry(url, { headers });
-      if (!response.ok) throw new Error('Failed to fetch links');
-      return await response.json();
-    } catch (e) {
-      console.error("Failed to load links", e);
-      return [];
+    let url = `${API_BASE}/links?trash=${trash}`;
+    if (type !== 'all') {
+      url += `&type=${type}`;
     }
+
+    const response = await fetchWithRetry(url, { headers });
+    if (!response.ok) {
+      // Throw (don't swallow) so callers can surface the outage; returning []
+      // here made a server failure look like an empty account.
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to fetch links');
+    }
+    return await response.json();
   },
 
   addLink: async (link: Omit<ShortLink, 'id' | 'createdAt' | 'clicks' | 'userId' | 'isDeleted' | 'isPersonalized'> & { isPersonalized?: boolean }, token?: string | null): Promise<ShortLink> => {
