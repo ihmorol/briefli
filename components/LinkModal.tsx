@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 import { ShortLink } from '../types';
-import { GeminiService } from '../services/geminiService';
 import { sanitizeSlug, SLUG_MAX_LENGTH } from '../lib/slug';
 
 interface LinkModalProps {
@@ -10,9 +9,13 @@ interface LinkModalProps {
   onSave: (data: Omit<ShortLink, 'id' | 'createdAt' | 'clicks'>) => void;
   initialData?: ShortLink;
   baseUrl: string;
+  // AI suggestions call the authenticated /api/suggest-slug endpoint; the
+  // Clerk token is owned by App.tsx, so it hands down a ready-to-call
+  // callback instead of this component touching auth directly.
+  getSuggestions: (payload: { description?: string; originalUrl?: string }) => Promise<string[]>;
 }
 
-export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, initialData, baseUrl }) => {
+export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, initialData, baseUrl, getSuggestions }) => {
   const [originalUrl, setOriginalUrl] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
@@ -46,10 +49,16 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
     if (!originalUrl) return;
     setIsGenerating(true);
     setSuggestions([]);
-    
-    const results = await GeminiService.suggestSlugs(originalUrl, description);
-    setSuggestions(results);
-    setIsGenerating(false);
+
+    try {
+      const results = await getSuggestions({ originalUrl, description });
+      setSuggestions(results);
+    } catch (e) {
+      // Same UX as before: on failure no suggestions are shown.
+      console.error('Failed to fetch slug suggestions:', e);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;

@@ -4,6 +4,7 @@ import { ShortLink } from './types';
 import { LinkCard } from './components/LinkCard';
 import { LinkModal } from './components/LinkModal';
 import { Header } from './components/Header';
+import { StorageService } from './services/storageService';
 import { useAppState } from './hooks/useAppState';
 import { SignedIn, SignedOut, SignIn, useAuth } from "@clerk/clerk-react";
 import "./index.css"
@@ -23,8 +24,8 @@ export default function App() {
     restoreLink
   } = useAppState();
   
-  const { isSignedIn } = useAuth();
-  
+  const { isSignedIn, getToken } = useAuth();
+
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
   const [isTrashOpen, setIsTrashOpen] = useState(false);
@@ -63,6 +64,13 @@ export default function App() {
   const handleEditLink = (link: ShortLink) => {
     setEditingLink(link);
     setIsLinkModalOpen(true);
+  };
+
+  // AI suggestions require a Clerk token (the endpoint enforces sign-in), so
+  // LinkModal receives a ready-to-call callback instead of the token itself.
+  const getSuggestions = async (payload: { description?: string; originalUrl?: string }) => {
+    const token = await getToken();
+    return StorageService.suggestSlugs(payload, token);
   };
 
   // Determine current list based on tab
@@ -203,12 +211,13 @@ export default function App() {
 
         {/* Modals */}
         {isLinkModalOpen && (
-          <LinkModal 
-            isOpen={isLinkModalOpen} 
-            onClose={() => { setIsLinkModalOpen(false); setEditingLink(undefined); }} 
-            onSave={handleSaveLink} 
+          <LinkModal
+            isOpen={isLinkModalOpen}
+            onClose={() => { setIsLinkModalOpen(false); setEditingLink(undefined); }}
+            onSave={handleSaveLink}
             initialData={editingLink}
             baseUrl={baseUrl}
+            getSuggestions={getSuggestions}
           />
         )}
 
