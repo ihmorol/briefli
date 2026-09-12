@@ -33,7 +33,3 @@ export const LinkSchema = z.object({
 export const UpdateLinkSchema = LinkSchema.extend({
   id: z.string()
 });
-
-export const SettingsSchema = z.object({
-  baseUrl: z.string().url("Invalid URL format").refine(url => url.endsWith('/'), "Base URL must end with a slash")
-});

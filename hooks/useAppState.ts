@@ -146,7 +146,6 @@ export const useAppState = () => {
     loading,
     saveLink,
     deleteLink,
-    restoreLink,
-    refresh: loadData
+    restoreLink
   };
 };
