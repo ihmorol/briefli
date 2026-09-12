@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SHORTLINK_DOMAINS } from '../config.js';
+import { SLUG_PATTERN, SLUG_MIN_LENGTH, SLUG_MAX_LENGTH } from '../lib/slug.js';
 
 // Helper to check if URL might cause redirect loop
 const isSelfReferencing = (url: string): boolean => {
@@ -13,11 +14,20 @@ const isSelfReferencing = (url: string): boolean => {
   }
 };
 
+// Slug is optional: when the client omits it (or sends an empty string, the
+// UI's "leave blank" state) the server generates one via randomSlug(). The
+// pattern/length rules come from lib/slug.ts, the shared slug module.
+const slugSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string()
+    .min(SLUG_MIN_LENGTH, `Slug must be at least ${SLUG_MIN_LENGTH} characters`)
+    .max(SLUG_MAX_LENGTH, `Slug is too long (max ${SLUG_MAX_LENGTH} characters)`)
+    .regex(SLUG_PATTERN, "Slug can only contain letters, numbers, hyphens, and underscores")
+    .optional()
+);
+
 export const LinkSchema = z.object({
-  slug: z.string()
-    .min(3, "Slug must be at least 3 characters")
-    .max(50, "Slug is too long")
-    .regex(/^[a-zA-Z0-9-_]+$/, "Slug can only contain letters, numbers, hyphens, and underscores"),
+  slug: slugSchema,
   originalUrl: z.string()
     .url("Invalid URL format")
     .refine(url => !isSelfReferencing(url), "Cannot create link pointing to this shortlink service (redirect loop)"),
