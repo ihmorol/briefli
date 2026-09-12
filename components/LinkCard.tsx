@@ -6,15 +6,21 @@ import { BASE_URL } from '../config';
 // How long the delete button stays in its "Confirm?" state before reverting.
 const CONFIRM_RESET_MS = 3000;
 
-interface LinkCardProps {
+interface CardActionsProps {
   link: ShortLink;
+  copied: boolean;
+  onCopy: () => void;
   onEdit: (link: ShortLink) => void;
   onDelete: (id: string) => void;
-  viewMode: 'grid' | 'list';
+  // Grid and list buttons differ only in padding/rounding (grid is larger);
+  // colors, icons and behaviour are shared.
+  variant: 'grid' | 'list';
 }
 
-export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, viewMode }) => {
-  const [copied, setCopied] = useState(false);
+// Edit/copy/delete buttons shared by both card renderings. Delete uses a
+// two-step inline confirm: first click arms the button, second click deletes.
+// The armed state auto-resets after CONFIRM_RESET_MS, on blur or on Escape.
+const CardActions: React.FC<CardActionsProps> = ({ link, copied, onCopy, onEdit, onDelete, variant }) => {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -27,8 +33,6 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
     setConfirmingDelete(false);
   };
 
-  // Two-step inline confirm: first click arms the button, second click
-  // deletes. Disarms itself after CONFIRM_RESET_MS, on blur or on Escape.
   const handleDeleteClick = () => {
     if (confirmingDelete) {
       cancelConfirm();
@@ -39,6 +43,55 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
     confirmTimer.current = setTimeout(cancelConfirm, CONFIRM_RESET_MS);
   };
+
+  const pad = variant === 'grid' ? 'p-2 rounded-lg' : 'p-1.5 rounded';
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={onCopy}
+        title={variant === 'grid' ? 'Copy' : 'Copy Link'}
+        className={`${pad} hover:bg-slate-800 text-slate-400 hover:text-white transition-colors${variant === 'grid' ? ' relative' : ''}`}
+      >
+        {variant === 'grid' ? (
+          <>
+            {copied ? <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-[10px] px-2 py-1 rounded">Copied!</span> : null}
+            <Copy className="w-4 h-4" />
+          </>
+        ) : (
+          copied ? <span className="text-green-500 font-bold text-xs">Copied</span> : <Copy className="w-4 h-4" />
+        )}
+      </button>
+      <button
+        onClick={() => onEdit(link)}
+        title={variant === 'grid' ? 'Edit' : undefined}
+        className={`${pad} hover:bg-slate-800 text-slate-400 hover:text-primary-400 transition-colors`}
+      >
+        <Edit2 className="w-4 h-4" />
+      </button>
+      <button
+        onClick={handleDeleteClick}
+        onBlur={cancelConfirm}
+        onKeyDown={(e) => { if (e.key === 'Escape') cancelConfirm(); }}
+        title={confirmingDelete ? 'Click again to confirm' : variant === 'grid' ? 'Delete' : undefined}
+        aria-label={confirmingDelete ? 'Confirm delete' : 'Delete'}
+        className={`${pad} hover:bg-slate-800 ${confirmingDelete ? 'bg-red-500/10 text-red-400' : 'text-slate-400 hover:text-red-400'} transition-colors`}
+      >
+        {confirmingDelete ? <span className="text-xs font-medium">Confirm?</span> : <Trash2 className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+};
+
+interface LinkCardProps {
+  link: ShortLink;
+  onEdit: (link: ShortLink) => void;
+  onDelete: (id: string) => void;
+  viewMode: 'grid' | 'list';
+}
+
+export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, viewMode }) => {
+  const [copied, setCopied] = useState(false);
 
   // Ensure base url ends with slash for display
   const cleanBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
@@ -70,46 +123,30 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
                 </span>
              )}
           </div>
-          <a 
-            href={link.originalUrl} 
-            target="_blank" 
-            rel="noopener noreferrer" 
+          <a
+            href={link.originalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-slate-500 text-xs truncate hover:text-slate-300 block mt-1"
           >
             {link.originalUrl}
           </a>
         </div>
-        
+
         <div className="flex items-center gap-3 sm:gap-6 self-end sm:self-center w-full sm:w-auto justify-between sm:justify-end">
            <div className="flex items-center gap-1 text-slate-600 text-xs" title="Clicks (Simulated)">
              <MousePointerClick className="w-3 h-3" />
              {link.clicks}
            </div>
-           
-           <div className="flex items-center gap-1">
-              <button 
-                onClick={handleCopy}
-                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition-colors"
-                title="Copy Link"
-              >
-                {copied ? <span className="text-green-500 font-bold text-xs">Copied</span> : <Copy className="w-4 h-4" />}
-              </button>
-              <button 
-                onClick={() => onEdit(link)}
-                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-primary-400 transition-colors"
-              >
-                <Edit2 className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={handleDeleteClick}
-                onBlur={cancelConfirm}
-                onKeyDown={(e) => { if (e.key === 'Escape') cancelConfirm(); }}
-                aria-label={confirmingDelete ? 'Confirm delete' : 'Delete'}
-                className={`p-1.5 hover:bg-slate-800 rounded ${confirmingDelete ? 'bg-red-500/10 text-red-400' : 'text-slate-400 hover:text-red-400'} transition-colors`}
-              >
-                {confirmingDelete ? <span className="text-xs font-medium">Confirm?</span> : <Trash2 className="w-4 h-4" />}
-              </button>
-           </div>
+
+           <CardActions
+             link={link}
+             copied={copied}
+             onCopy={handleCopy}
+             onEdit={onEdit}
+             onDelete={onDelete}
+             variant="list"
+           />
         </div>
       </div>
     );
@@ -118,7 +155,7 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all group flex flex-col h-full relative overflow-hidden">
       <div className="absolute top-0 left-0 w-1 h-full bg-primary-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-      
+
       <div className="flex justify-between items-start mb-3">
         <div className="flex flex-col">
             <span className="text-xs text-slate-500 mb-1">{formattedDate}</span>
@@ -136,10 +173,10 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
         {link.description && (
           <p className="text-sm text-slate-300 line-clamp-2 mb-2">{link.description}</p>
         )}
-        <a 
-          href={link.originalUrl} 
-          target="_blank" 
-          rel="noopener noreferrer" 
+        <a
+          href={link.originalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
           className="text-xs text-slate-500 hover:text-slate-300 truncate flex items-center gap-1 w-full"
         >
           {link.originalUrl}
@@ -152,33 +189,15 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
           <MousePointerClick className="w-3 h-3" />
           <span>{link.clicks} clicks</span>
         </div>
-        
-        <div className="flex items-center gap-1">
-          <button 
-            onClick={handleCopy}
-            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors relative"
-            title="Copy"
-          >
-             {copied ? <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-[10px] px-2 py-1 rounded">Copied!</span> : null}
-            <Copy className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={() => onEdit(link)}
-            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary-400 transition-colors"
-            title="Edit"
-          >
-            <Edit2 className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={handleDeleteClick}
-            onBlur={cancelConfirm}
-            onKeyDown={(e) => { if (e.key === 'Escape') cancelConfirm(); }}
-            title={confirmingDelete ? 'Click again to confirm' : 'Delete'}
-            className={`p-2 hover:bg-slate-800 rounded-lg ${confirmingDelete ? 'bg-red-500/10 text-red-400' : 'text-slate-400 hover:text-red-400'} transition-colors`}
-          >
-            {confirmingDelete ? <span className="text-xs font-medium">Confirm?</span> : <Trash2 className="w-4 h-4" />}
-          </button>
-        </div>
+
+        <CardActions
+          link={link}
+          copied={copied}
+          onCopy={handleCopy}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          variant="grid"
+        />
       </div>
     </div>
   );
