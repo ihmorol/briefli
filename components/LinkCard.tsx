@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Copy, Edit2, Trash2, ExternalLink, MoreVertical, MousePointerClick, Link as LinkIcon } from 'lucide-react';
 import { ShortLink } from '../types';
 import { BASE_URL } from '../config';
+
+// How long the delete button stays in its "Confirm?" state before reverting.
+const CONFIRM_RESET_MS = 3000;
 
 interface LinkCardProps {
   link: ShortLink;
@@ -12,6 +15,30 @@ interface LinkCardProps {
 
 export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, viewMode }) => {
   const [copied, setCopied] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+  }, []);
+
+  const cancelConfirm = () => {
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    setConfirmingDelete(false);
+  };
+
+  // Two-step inline confirm: first click arms the button, second click
+  // deletes. Disarms itself after CONFIRM_RESET_MS, on blur or on Escape.
+  const handleDeleteClick = () => {
+    if (confirmingDelete) {
+      cancelConfirm();
+      onDelete(link.id);
+      return;
+    }
+    setConfirmingDelete(true);
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    confirmTimer.current = setTimeout(cancelConfirm, CONFIRM_RESET_MS);
+  };
 
   // Ensure base url ends with slash for display
   const cleanBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
@@ -74,10 +101,13 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
                 <Edit2 className="w-4 h-4" />
               </button>
               <button 
-                onClick={() => onDelete(link.id)}
-                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-red-400 transition-colors"
+                onClick={handleDeleteClick}
+                onBlur={cancelConfirm}
+                onKeyDown={(e) => { if (e.key === 'Escape') cancelConfirm(); }}
+                aria-label={confirmingDelete ? 'Confirm delete' : 'Delete'}
+                className={`p-1.5 hover:bg-slate-800 rounded ${confirmingDelete ? 'bg-red-500/10 text-red-400' : 'text-slate-400 hover:text-red-400'} transition-colors`}
               >
-                <Trash2 className="w-4 h-4" />
+                {confirmingDelete ? <span className="text-xs font-medium">Confirm?</span> : <Trash2 className="w-4 h-4" />}
               </button>
            </div>
         </div>
@@ -140,11 +170,13 @@ export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, view
             <Edit2 className="w-4 h-4" />
           </button>
           <button 
-            onClick={() => onDelete(link.id)}
-            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
-            title="Delete"
+            onClick={handleDeleteClick}
+            onBlur={cancelConfirm}
+            onKeyDown={(e) => { if (e.key === 'Escape') cancelConfirm(); }}
+            title={confirmingDelete ? 'Click again to confirm' : 'Delete'}
+            className={`p-2 hover:bg-slate-800 rounded-lg ${confirmingDelete ? 'bg-red-500/10 text-red-400' : 'text-slate-400 hover:text-red-400'} transition-colors`}
           >
-            <Trash2 className="w-4 h-4" />
+            {confirmingDelete ? <span className="text-xs font-medium">Confirm?</span> : <Trash2 className="w-4 h-4" />}
           </button>
         </div>
       </div>

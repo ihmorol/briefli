@@ -6,6 +6,7 @@ import { LinkModal } from './components/LinkModal';
 import { Header } from './components/Header';
 import { StorageService } from './services/storageService';
 import { useAppState } from './hooks/useAppState';
+import { useToast } from './context/ToastContext';
 import { SignedIn, SignedOut, SignIn, useAuth } from "@clerk/clerk-react";
 import "./index.css"
 
@@ -24,6 +25,7 @@ export default function App() {
   } = useAppState();
   
   const { isSignedIn, getToken } = useAuth();
+  const { error: showError } = useToast();
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
@@ -43,7 +45,7 @@ export default function App() {
     
     // Safety check just in case
     if (isPersonalized && !isSignedIn) {
-        alert("You must be signed in to create personalized links.");
+        showError('You must be signed in to create personalized links.');
         return;
     }
 
@@ -54,10 +56,10 @@ export default function App() {
     }
   };
 
+  // Confirmation for deleting is handled inline by LinkCard (two-step
+  // confirm); App just performs it.
   const handleDeleteLink = (id: string) => {
-    if (confirm('Are you sure you want to move this link to trash?')) {
-      deleteLink(id);
-    }
+    deleteLink(id);
   };
 
   const handleEditLink = (link: ShortLink) => {
