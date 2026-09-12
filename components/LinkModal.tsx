@@ -2,20 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 import { ShortLink } from '../types';
 import { sanitizeSlug, SLUG_MAX_LENGTH } from '../lib/slug';
+import { BASE_URL } from '../config';
 
 interface LinkModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: Omit<ShortLink, 'id' | 'createdAt' | 'clicks'>) => void;
   initialData?: ShortLink;
-  baseUrl: string;
   // AI suggestions call the authenticated /api/suggest-slug endpoint; the
   // Clerk token is owned by App.tsx, so it hands down a ready-to-call
   // callback instead of this component touching auth directly.
   getSuggestions: (payload: { description?: string; originalUrl?: string }) => Promise<string[]>;
 }
 
-export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, initialData, baseUrl, getSuggestions }) => {
+export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, initialData, getSuggestions }) => {
   const [originalUrl, setOriginalUrl] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
@@ -61,7 +61,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
     }
   };
 
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const cleanBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
 
   if (!isOpen) return null;
 

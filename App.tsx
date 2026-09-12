@@ -17,7 +17,6 @@ export default function App() {
     personalizedLinks, 
     trashPublicLinks,
     trashPersonalizedLinks,
-    baseUrl, 
     loading, 
     saveLink, 
     deleteLink, 
@@ -181,7 +180,6 @@ export default function App() {
                     <LinkCard 
                       key={link.id} 
                       link={link} 
-                      baseUrl={baseUrl} 
                       onEdit={handleEditLink}
                       onDelete={handleDeleteLink}
                       viewMode={viewMode}
@@ -216,7 +214,6 @@ export default function App() {
             onClose={() => { setIsLinkModalOpen(false); setEditingLink(undefined); }}
             onSave={handleSaveLink}
             initialData={editingLink}
-            baseUrl={baseUrl}
             getSuggestions={getSuggestions}
           />
         )}
