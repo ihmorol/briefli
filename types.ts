@@ -3,15 +3,12 @@ export interface ShortLink {
   slug: string;
   originalUrl: string;
   description?: string;
-  createdAt: number;
+  // Postgres timestamptz serialized by the API as an ISO 8601 string
+  createdAt: string;
   clicks: number;
   userId?: string;
   isPersonalized?: boolean;
   isDeleted?: boolean;
-}
-
-export interface AppSettings {
-  baseUrl: string;
 }
 
 export interface SlugSuggestionResponse {

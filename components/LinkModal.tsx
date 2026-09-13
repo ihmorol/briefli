@@ -1,58 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, Sparkles, Loader2, ArrowRight, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 import { ShortLink } from '../types';
-import { GeminiService } from '../services/geminiService';
-import { StorageService } from '../services/storageService';
+import { sanitizeSlug, SLUG_MAX_LENGTH } from '../lib/slug';
+import { BASE_URL } from '../config';
 
 interface LinkModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: Omit<ShortLink, 'id' | 'createdAt' | 'clicks'>) => void;
   initialData?: ShortLink;
-  baseUrl: string;
+  // AI suggestions call the authenticated /api/suggest-slug endpoint; the
+  // Clerk token is owned by App.tsx, so it hands down a ready-to-call
+  // callback instead of this component touching auth directly.
+  getSuggestions: (payload: { description?: string; originalUrl?: string }) => Promise<string[]>;
 }
 
-// Generate a random 6-character alphanumeric code
-const generateRandomCode = (): string => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-};
-
-export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, initialData, baseUrl }) => {
+export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, initialData, getSuggestions }) => {
   const [originalUrl, setOriginalUrl] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isLoadingSlug, setIsLoadingSlug] = useState(false);
-
-  // Generate a unique slug that doesn't exist in the database
-  const generateUniqueSlug = useCallback(async () => {
-    setIsLoadingSlug(true);
-    let attempts = 0;
-    const maxAttempts = 10;
-    
-    while (attempts < maxAttempts) {
-      const code = generateRandomCode();
-      const exists = await StorageService.checkSlugExists(code);
-      
-      if (!exists) {
-        setSlug(code);
-        setIsLoadingSlug(false);
-        return;
-      }
-      attempts++;
-    }
-    
-    // Fallback: use timestamp-based code if all random attempts fail
-    const fallbackCode = Date.now().toString(36).slice(-6);
-    setSlug(fallbackCode);
-    setIsLoadingSlug(false);
-  }, []);
 
   useEffect(() => {
     if (initialData) {
@@ -61,19 +29,19 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
       setDescription(initialData.description || '');
     } else {
       setOriginalUrl('');
+      // Slug left empty -> the server generates one on save.
       setSlug('');
       setDescription('');
-      // Auto-generate unique slug when opening modal for new link
-      if (isOpen) {
-        generateUniqueSlug();
-      }
     }
     setSuggestions([]);
-  }, [initialData, isOpen, generateUniqueSlug]);
+  }, [initialData, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!originalUrl || !slug || isLoadingSlug) return;
+    if (!originalUrl) return;
+    // An empty slug means "auto-generate": the server assigns one and the
+    // created link (with its server slug) is inserted into app state by the
+    // saveLink path (StorageService.addLink returns the API response).
     onSave({ originalUrl, slug, description });
   };
 
@@ -81,13 +49,19 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
     if (!originalUrl) return;
     setIsGenerating(true);
     setSuggestions([]);
-    
-    const results = await GeminiService.suggestSlugs(originalUrl, description);
-    setSuggestions(results);
-    setIsGenerating(false);
+
+    try {
+      const results = await getSuggestions({ originalUrl, description });
+      setSuggestions(results);
+    } catch (e) {
+      // Same UX as before: on failure no suggestions are shown.
+      console.error('Failed to fetch slug suggestions:', e);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const cleanBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
 
   if (!isOpen) return null;
 
@@ -151,33 +125,19 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
               <span className="flex items-center px-4 text-slate-500 bg-slate-900/50 border-r border-slate-800 rounded-l-lg text-sm select-none">
                 {cleanBase}
               </span>
-              {isLoadingSlug ? (
-                <div className="flex-1 flex items-center justify-center px-4 py-2.5">
-                  <Loader2 className="w-4 h-4 animate-spin text-primary-400" />
-                  <span className="ml-2 text-sm text-slate-500">Generating unique code...</span>
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  required
-                  placeholder="portfolio"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value.replace(/[^a-zA-Z0-9-_]/g, ''))}
-                  className="flex-1 bg-transparent border-0 px-4 py-2.5 text-slate-100 focus:ring-0 focus:outline-none placeholder:text-slate-600 font-mono"
-                />
-              )}
-              {!initialData && (
-                <button
-                  type="button"
-                  onClick={generateUniqueSlug}
-                  disabled={isLoadingSlug}
-                  className="flex items-center px-3 text-slate-400 hover:text-primary-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-l border-slate-800"
-                  title="Generate new code"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingSlug ? 'animate-spin' : ''}`} />
-                </button>
-              )}
+              <input
+                type="text"
+                placeholder="portfolio"
+                value={slug}
+                maxLength={SLUG_MAX_LENGTH}
+                onChange={(e) => setSlug(sanitizeSlug(e.target.value))}
+                className="flex-1 bg-transparent border-0 px-4 py-2.5 text-slate-100 focus:ring-0 focus:outline-none placeholder:text-slate-600 font-mono"
+              />
             </div>
+
+            <p className="text-xs text-slate-500">
+              3-50 characters: letters, numbers, hyphens, underscores. Leave empty to auto-generate.
+            </p>
 
             {/* AI Suggestions */}
             {suggestions.length > 0 && (
@@ -188,7 +148,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setSlug(s)}
+                      onClick={() => setSlug(sanitizeSlug(s))}
                       className="text-xs bg-slate-800 hover:bg-primary-900/40 hover:text-primary-300 text-slate-300 px-3 py-1.5 rounded-full border border-slate-700 transition-all"
                     >
                       {s}
@@ -209,7 +169,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, i
             </button>
             <button
               type="submit"
-              disabled={!originalUrl || !slug}
+              disabled={!originalUrl}
               className="flex items-center gap-2 px-6 py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-900/20"
             >
               {initialData ? 'Save Changes' : 'Create Link'}

@@ -1,55 +1,68 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ShortLink } from '../types';
 import { StorageService } from '../services/storageService';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '@clerk/clerk-react';
 
-// Hardcoded base URL (no settings table needed)
-const BASE_URL = 'https://s.ihmorol.cv/';
+// Flatten a fetched page of links into the single keyed store. Duplicate ids
+// (same link appearing in two fetched views) collapse to the last occurrence.
+const toRecord = (links: ShortLink[]): Record<string, ShortLink> => {
+  const record: Record<string, ShortLink> = {};
+  for (const link of links) {
+    record[link.id] = link;
+  }
+  return record;
+};
 
 export const useAppState = () => {
   const { success, error } = useToast();
   const { getToken, userId } = useAuth();
-  
-  const [publicLinks, setPublicLinks] = useState<ShortLink[]>([]);
-  const [personalizedLinks, setPersonalizedLinks] = useState<ShortLink[]>([]);
-  const [trashPublicLinks, setTrashPublicLinks] = useState<ShortLink[]>([]);
-  const [trashPersonalizedLinks, setTrashPersonalizedLinks] = useState<ShortLink[]>([]);
+
+  // One deep store: every link keyed by id. The four UI lists are pure
+  // derivations of it, so mutations never need to decide "which list" —
+  // they patch the record and the views recompute.
+  const [linksById, setLinksById] = useState<Record<string, ShortLink>>({});
   const [loading, setLoading] = useState(true);
+
+  // Latest-store mirror for the rare async handler that must inspect a record
+  // (the PUT payload needs the record's clicks/isDeleted). Reading the ref
+  // always sees the newest committed store, unlike the old render-closure
+  // reads that caused stale-closure bugs under back-to-back saves.
+  const linksByIdRef = useRef<Record<string, ShortLink>>({});
+  linksByIdRef.current = linksById;
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const token = await getToken();
-      
-      const promises = [
-        StorageService.getLinks(token, 'public'),
-        StorageService.getLinks(token, 'public', true)
-      ];
 
       if (userId) {
-        promises.push(StorageService.getLinks(token, 'personalized'));
-        promises.push(StorageService.getLinks(token, 'personalized', true));
-      }
-
-      const results = await Promise.all(promises);
-      
-      setPublicLinks(results[0] as ShortLink[]);
-      setTrashPublicLinks(results[1] as ShortLink[]);
-
-      if (userId) {
-        setPersonalizedLinks(results[2] as ShortLink[]);
-        setTrashPersonalizedLinks(results[3] as ShortLink[]);
+        // Typed tuple destructure — no positional `as` casts to silently
+        // break if the request order ever changes.
+        const [fetchedPublic, fetchedPublicTrash, fetchedPersonalized, fetchedPersonalizedTrash] = await Promise.all([
+          StorageService.getLinks(token, 'public'),
+          StorageService.getLinks(token, 'public', true),
+          StorageService.getLinks(token, 'personalized'),
+          StorageService.getLinks(token, 'personalized', true)
+        ]);
+        setLinksById(toRecord([...fetchedPublic, ...fetchedPublicTrash, ...fetchedPersonalized, ...fetchedPersonalizedTrash]));
       } else {
-        setPersonalizedLinks([]);
-        setTrashPersonalizedLinks([]);
+        const [fetchedPublic, fetchedPublicTrash] = await Promise.all([
+          StorageService.getLinks(token, 'public'),
+          StorageService.getLinks(token, 'public', true)
+        ]);
+        // Signed out: replace the whole store so personalized links from a
+        // previous session don't linger.
+        setLinksById(toRecord([...fetchedPublic, ...fetchedPublicTrash]));
       }
-
     } catch (err: any) {
       console.error('Failed to load data:', err);
+      error('Failed to load links');
     } finally {
       setLoading(false);
     }
+    // Deliberately not depending on the toast helpers: the ToastContext value
+    // changes identity on every toast, which would re-trigger this load.
   }, [getToken, userId]);
 
   useEffect(() => {
@@ -60,29 +73,21 @@ export const useAppState = () => {
     try {
       const token = await getToken();
       if (id) {
-        const isPublic = publicLinks.find(l => l.id === id);
-        const isPersonalized = personalizedLinks.find(l => l.id === id);
-        
-        const currentLink = isPublic || isPersonalized;
+        const currentLink = linksByIdRef.current[id];
         if (!currentLink) throw new Error('Link not found');
 
         const updatedLink = { ...currentLink, ...linkData, isPersonalized: linkData.isPersonalized };
-        
+
         await StorageService.updateLink(updatedLink, token);
-        
-        if (isPublic) {
-            setPublicLinks(prev => prev.map(l => l.id === id ? updatedLink : l));
-        } else {
-            setPersonalizedLinks(prev => prev.map(l => l.id === id ? updatedLink : l));
-        }
+
+        setLinksById(prev => {
+          if (!prev[id]) return prev;
+          return { ...prev, [id]: updatedLink };
+        });
         success('Link updated successfully');
       } else {
         const newLink = await StorageService.addLink(linkData, token);
-        if (newLink.isPersonalized) {
-            setPersonalizedLinks(prev => [newLink, ...prev]);
-        } else {
-            setPublicLinks(prev => [newLink, ...prev]);
-        }
+        setLinksById(prev => ({ ...prev, [newLink.id]: newLink }));
         success('Link created successfully');
       }
       return true;
@@ -96,18 +101,12 @@ export const useAppState = () => {
     try {
       const token = await getToken();
       await StorageService.deleteLink(id, token);
-      
-      const publicLink = publicLinks.find(l => l.id === id);
-      if (publicLink) {
-          setPublicLinks(prev => prev.filter(l => l.id !== id));
-          setTrashPublicLinks(prev => [{ ...publicLink, isDeleted: true }, ...prev]);
-      } else {
-          const personalizedLink = personalizedLinks.find(l => l.id === id);
-          if (personalizedLink) {
-              setPersonalizedLinks(prev => prev.filter(l => l.id !== id));
-              setTrashPersonalizedLinks(prev => [{ ...personalizedLink, isDeleted: true }, ...prev]);
-          }
-      }
+
+      setLinksById(prev => {
+        const current = prev[id];
+        if (!current) return prev;
+        return { ...prev, [id]: { ...current, isDeleted: true } };
+      });
       success('Link moved to trash');
     } catch (err: any) {
       console.error(err);
@@ -116,37 +115,61 @@ export const useAppState = () => {
   };
 
   const restoreLink = async (id: string, isPersonalized: boolean) => {
-      try {
-          const token = await getToken();
-          const list = isPersonalized ? trashPersonalizedLinks : trashPublicLinks;
-          const link = list.find(l => l.id === id);
-          if (!link) return;
+    try {
+      const token = await getToken();
+      const link = linksByIdRef.current[id];
+      // The caller's tab flag is kept for call-site compatibility; the record
+      // itself carries the authoritative isPersonalized.
+      if (!link || isPersonalized !== (link.isPersonalized ?? false)) return;
 
-          await StorageService.updateLink({ ...link, isDeleted: false }, token);
+      await StorageService.updateLink({ ...link, isDeleted: false }, token);
 
-          if (isPersonalized) {
-              setTrashPersonalizedLinks(prev => prev.filter(l => l.id !== id));
-              setPersonalizedLinks(prev => [{ ...link, isDeleted: false }, ...prev]);
-          } else {
-              setTrashPublicLinks(prev => prev.filter(l => l.id !== id));
-              setPublicLinks(prev => [{ ...link, isDeleted: false }, ...prev]);
-          }
-          success('Link restored');
-      } catch (err: any) {
-          error(err.message || 'Failed to restore link');
-      }
+      setLinksById(prev => {
+        const current = prev[id];
+        if (!current) return prev;
+        return { ...prev, [id]: { ...current, isDeleted: false } };
+      });
+      success('Link restored');
+    } catch (err: any) {
+      error(err.message || 'Failed to restore link');
+    }
   };
+
+  // Newest first. createdAt is an ISO 8601 string, so lexicographic order is
+  // chronological order — sorting here keeps every view stable regardless of
+  // insertion/update order.
+  const { publicLinks, personalizedLinks, trashPublicLinks, trashPersonalizedLinks } = useMemo(() => {
+    const publicLinks: ShortLink[] = [];
+    const personalizedLinks: ShortLink[] = [];
+    const trashPublicLinks: ShortLink[] = [];
+    const trashPersonalizedLinks: ShortLink[] = [];
+
+    for (const link of Object.values(linksById)) {
+      if (link.isPersonalized) {
+        (link.isDeleted ? trashPersonalizedLinks : personalizedLinks).push(link);
+      } else {
+        (link.isDeleted ? trashPublicLinks : publicLinks).push(link);
+      }
+    }
+
+    const byNewestFirst = (a: ShortLink, b: ShortLink) => b.createdAt.localeCompare(a.createdAt);
+
+    return {
+      publicLinks: publicLinks.sort(byNewestFirst),
+      personalizedLinks: personalizedLinks.sort(byNewestFirst),
+      trashPublicLinks: trashPublicLinks.sort(byNewestFirst),
+      trashPersonalizedLinks: trashPersonalizedLinks.sort(byNewestFirst)
+    };
+  }, [linksById]);
 
   return {
     publicLinks,
     personalizedLinks,
     trashPublicLinks,
     trashPersonalizedLinks,
-    baseUrl: BASE_URL,
     loading,
     saveLink,
     deleteLink,
-    restoreLink,
-    refresh: loadData
+    restoreLink
   };
 };

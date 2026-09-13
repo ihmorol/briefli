@@ -1,7 +1,6 @@
 import { z } from 'zod';
-
-// Known shortlink domains to prevent self-referencing (R15 FIX)
-const SHORTLINK_DOMAINS = ['s.ihmorol.cv'];
+import { SHORTLINK_DOMAINS } from '../config.js';
+import { SLUG_PATTERN, SLUG_MIN_LENGTH, SLUG_MAX_LENGTH } from '../lib/slug.js';
 
 // Helper to check if URL might cause redirect loop
 const isSelfReferencing = (url: string): boolean => {
@@ -15,25 +14,43 @@ const isSelfReferencing = (url: string): boolean => {
   }
 };
 
+// Slug is optional: when the client omits it (or sends an empty string, the
+// UI's "leave blank" state) the server generates one via randomSlug(). The
+// pattern/length rules come from lib/slug.ts, the shared slug module.
+const slugSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string()
+    .min(SLUG_MIN_LENGTH, `Slug must be at least ${SLUG_MIN_LENGTH} characters`)
+    .max(SLUG_MAX_LENGTH, `Slug is too long (max ${SLUG_MAX_LENGTH} characters)`)
+    .regex(SLUG_PATTERN, "Slug can only contain letters, numbers, hyphens, and underscores")
+    .optional()
+);
+
 export const LinkSchema = z.object({
-  slug: z.string()
-    .min(3, "Slug must be at least 3 characters")
-    .max(50, "Slug is too long")
-    .regex(/^[a-zA-Z0-9-_]+$/, "Slug can only contain letters, numbers, hyphens, and underscores"),
+  slug: slugSchema,
   originalUrl: z.string()
     .url("Invalid URL format")
     .refine(url => !isSelfReferencing(url), "Cannot create link pointing to this shortlink service (redirect loop)"),
   description: z.string().max(500, "Description is too long").optional(),
   clicks: z.number().int().nonnegative().optional(),
-  user_id: z.string().optional(),
-  is_personalized: z.boolean().default(false),
-  is_deleted: z.boolean().default(false)
+  userId: z.string().optional(),
+  isPersonalized: z.boolean().default(false),
+  isDeleted: z.boolean().default(false)
 });
 
 export const UpdateLinkSchema = LinkSchema.extend({
   id: z.string()
 });
 
-export const SettingsSchema = z.object({
-  baseUrl: z.string().url("Invalid URL format").refine(url => url.endsWith('/'), "Base URL must end with a slash")
-});
+// AI slug suggestions: both fields optional, but a body with neither is
+// rejected — there would be nothing to base suggestions on. An empty-string
+// description still counts as absent, matching the UI's optional field.
+export const SuggestSlugSchema = z
+  .object({
+    description: z.string().max(500, "Description is too long").optional(),
+    originalUrl: z.string().url("Invalid URL format").optional()
+  })
+  .refine(
+    (data) => !!data.originalUrl || (data.description ?? '').trim().length > 0,
+    "Provide a URL or a description to suggest slugs"
+  );
