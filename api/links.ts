@@ -5,7 +5,15 @@ import { canModify } from './_lib/permissions.js';
 import { badRequest, conflict, forbidden, notFound } from './_lib/apiError.js';
 import { LinkSchema, UpdateLinkSchema } from './schema.js';
 import { toDomain, toRowPatch, type LinkRow } from './_lib/linkRecord.js';
+import { randomSlug } from '../lib/slug.js';
 import { withApi } from './_lib/withApi.js';
+
+// Supabase surfaces Postgres errors with a `code` field; '23505' is
+// unique_violation. Inspected defensively because the rest of this file only
+// rethrows Supabase errors as-is.
+const isUniqueViolation = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'code' in error &&
+  (error as { code?: unknown }).code === '23505';
 
 async function linksHandler(req: VercelRequest, res: VercelResponse) {
   switch (req.method) {
@@ -47,9 +55,18 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
         throw badRequest(validation.error.issues[0].message);
       }
 
-      const { slug, originalUrl, description, isPersonalized } = validation.data;
+      const { originalUrl, description, isPersonalized } = validation.data;
+      const requestedSlug = validation.data.slug;
 
-      // Check for duplicates
+      // BEHAVIOR CHANGE: the slug is optional. When the client omits it (left
+      // blank in the UI), the server generates one. A user-typed slug keeps
+      // the duplicate-check -> 409 behavior below with no auto-regeneration.
+      const isGeneratedSlug = requestedSlug === undefined;
+      const slug = requestedSlug ?? randomSlug();
+
+      // Cheap pre-insert duplicate check for the common case; the UNIQUE
+      // constraint on links.slug (migration.sql) is the authoritative race
+      // backstop, handled at the INSERT below.
       const { data: existing } = await supabase
         .from('links')
         .select('slug')
@@ -72,17 +89,40 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
         isDeleted: false
       });
 
-      const { data: inserted, error } = await supabase
-        .from('links')
-        .insert(insertRow)
-        .select()
-        .single();
+      // Insert with unique-violation handling: a '23505' on a generated slug
+      // means a concurrent request claimed it first, so regenerate (at most
+      // 5 attempts, then 409); a '23505' on a user-typed slug is surfaced as
+      // 409 without regeneration.
+      const MAX_SLUG_ATTEMPTS = 5;
+      let inserted: LinkRow | null = null;
 
-      if (error) throw error;
+      for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
+        const { data, error } = await supabase
+          .from('links')
+          .insert(insertRow)
+          .select()
+          .single();
 
-      // DB-typing seam: Supabase returns untyped rows; the cast to LinkRow is
-      // the one place a DB row is allowed to enter the domain model.
-      return res.status(201).json(toDomain(inserted as LinkRow));
+        if (!error) {
+          // DB-typing seam: Supabase returns untyped rows; the cast to
+          // LinkRow is the one place a DB row is allowed to enter the
+          // domain model.
+          inserted = data as LinkRow;
+          break;
+        }
+
+        if (!isUniqueViolation(error)) throw error;
+        if (!isGeneratedSlug || attempt === MAX_SLUG_ATTEMPTS) {
+          throw conflict('Slug already exists');
+        }
+        insertRow.slug = randomSlug();
+      }
+
+      if (!inserted) {
+        throw conflict('Slug already exists');
+      }
+
+      return res.status(201).json(toDomain(inserted));
     }
 
     case 'PUT': {
@@ -93,7 +133,7 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
         throw badRequest(validation.error.issues[0].message);
       }
 
-      const { id, slug, originalUrl, description, isDeleted } = validation.data;
+      const { id, slug: requestedSlug, originalUrl, description, isDeleted } = validation.data;
 
       // Fetch existing to check permissions
       const { data: existing } = await supabase
@@ -109,6 +149,11 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
       if (!canModify(existing, userId)) {
         throw forbidden('Forbidden - You do not own this link');
       }
+
+      // Slug is optional on update: absent (or empty, normalized to undefined
+      // in the schema) means "keep the current slug". Only explicit renames
+      // are uniqueness-checked.
+      const slug = requestedSlug ?? existing.slug;
 
       // Check slug uniqueness if changed
       if (existing.slug !== slug) {

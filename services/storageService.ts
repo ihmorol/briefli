@@ -105,17 +105,5 @@ export const StorageService = {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to delete link');
     }
-  },
-
-  checkSlugExists: async (slug: string): Promise<boolean> => {
-    try {
-      const response = await fetchWithRetry(`${API_BASE}/check-slug?slug=${encodeURIComponent(slug)}`);
-      if (!response.ok) return true; // Assume exists on error to be safe
-      const data = await response.json();
-      return data.exists;
-    } catch (e) {
-      console.error("Failed to check slug", e);
-      return true; // Assume exists on error to be safe
-    }
   }
 };
