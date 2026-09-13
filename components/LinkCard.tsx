@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
 import { Copy, Edit2, Trash2, ExternalLink, MoreVertical, MousePointerClick, Link as LinkIcon } from 'lucide-react';
 import { ShortLink } from '../types';
+import { BASE_URL } from '../config';
 
 interface LinkCardProps {
   link: ShortLink;
-  baseUrl: string;
   onEdit: (link: ShortLink) => void;
   onDelete: (id: string) => void;
   viewMode: 'grid' | 'list';
 }
 
-export const LinkCard: React.FC<LinkCardProps> = ({ link, baseUrl, onEdit, onDelete, viewMode }) => {
+export const LinkCard: React.FC<LinkCardProps> = ({ link, onEdit, onDelete, viewMode }) => {
   const [copied, setCopied] = useState(false);
 
   // Ensure base url ends with slash for display
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const cleanBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
   const fullShortLink = `${cleanBase}${link.slug}`;
 
   const handleCopy = () => {
