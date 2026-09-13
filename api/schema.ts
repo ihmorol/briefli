@@ -41,3 +41,16 @@ export const LinkSchema = z.object({
 export const UpdateLinkSchema = LinkSchema.extend({
   id: z.string()
 });
+
+// AI slug suggestions: both fields optional, but a body with neither is
+// rejected — there would be nothing to base suggestions on. An empty-string
+// description still counts as absent, matching the UI's optional field.
+export const SuggestSlugSchema = z
+  .object({
+    description: z.string().max(500, "Description is too long").optional(),
+    originalUrl: z.string().url("Invalid URL format").optional()
+  })
+  .refine(
+    (data) => !!data.originalUrl || (data.description ?? '').trim().length > 0,
+    "Provide a URL or a description to suggest slugs"
+  );

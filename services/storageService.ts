@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { ShortLink } from '../types';
+import { ShortLink, SlugSuggestionResponse } from '../types';
 
 const API_BASE = '/api';
 
@@ -105,5 +105,25 @@ export const StorageService = {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to delete link');
     }
+  },
+
+  // AI slug suggestions go through the authenticated API endpoint — the
+  // Gemini key lives server-side only. Plain fetch, deliberately NOT retried
+  // via fetchWithRetry: this POST is neither idempotent nor cheap.
+  suggestSlugs: async (payload: { description?: string; originalUrl?: string }, token?: string | null): Promise<string[]> => {
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE}/suggest-slug`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to fetch suggestions');
+    }
+    const data: SlugSuggestionResponse = await response.json();
+    return data.suggestions;
   }
 };

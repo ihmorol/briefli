@@ -1,11 +1,13 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from 'tailwindcss';
 import autoprefixer from 'autoprefixer';
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
+// SECURITY: no `define` block here — secrets must never be inlined into the
+// browser bundle. AI calls go through the server-side /api/suggest-slug
+// endpoint instead.
+export default defineConfig(() => {
     return {
       server: {
         port: 3000,
@@ -16,10 +18,6 @@ export default defineConfig(({ mode }) => {
         postcss: {
           plugins: [tailwindcss, autoprefixer],
         },
-      },
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
       },
       resolve: {
         alias: {
