@@ -25,19 +25,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // R4 FIX: Use atomic increment to prevent race conditions
-    // Try RPC first (requires migration), fallback to raw SQL
     try {
-      await supabase.rpc('increment_clicks', { link_id: link.id });
-    } catch {
-      // Fallback: Use raw SQL for atomic increment if RPC not available
+      // The increment_clicks RPC (defined by migration) is the atomic path.
+      const { error: rpcError } = await supabase.rpc('increment_clicks', { link_id: link.id });
+      if (rpcError) throw rpcError;
+    } catch (rpcError) {
+      console.error('increment_clicks RPC failed, using fallback:', rpcError);
+      // Fallback (non-atomic): read the current counter, then write current + 1
+      // so a failure can never reset clicks to a fixed value.
+      const { data: current } = await supabase
+        .from('links')
+        .select('clicks')
+        .eq('id', link.id)
+        .maybeSingle();
+
       await supabase
         .from('links')
-        .update({ clicks: 1 }) // Placeholder - actual atomic update via raw query
+        .update({ clicks: (current?.clicks ?? 0) + 1 })
         .eq('id', link.id);
-      
-      // Note: For true atomic increment without RPC, use Supabase raw SQL:
-      // await supabase.from('links').update({}).eq('id', link.id)
-      // This is a limitation - the RPC approach is recommended
     }
 
     // Redirect to original URL

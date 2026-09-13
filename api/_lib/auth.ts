@@ -1,24 +1,25 @@
 
-import { Clerk } from '@clerk/clerk-sdk-node';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { verifyToken } from '@clerk/backend';
+import type { VercelRequest } from '@vercel/node';
+import { unauthorized } from './apiError.js';
 
-const clerkClient = Clerk({ secretKey: process.env.CLERK_SECRET_KEY });
-
-export async function authenticate(req: VercelRequest, res: VercelResponse, optional = false): Promise<string | null> {
+// Verifies the request's Bearer token and returns the Clerk user id.
+// Throws ApiError(401) on a missing or invalid token; it never writes to the
+// response itself — rendering is owned by withApi.
+export async function requireUser(req: VercelRequest): Promise<string> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    if (optional) return null;
-    res.status(401).json({ error: 'Missing or invalid authorization header' });
-    return null;
+    throw unauthorized('Missing or invalid authorization header');
   }
 
   const token = authHeader.split(' ')[1];
   try {
-    const { sub: userId } = await clerkClient.verifyToken(token);
+    const { sub: userId } = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY
+    });
     return userId;
   } catch (error) {
     console.error('Auth Error:', error);
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
+    throw unauthorized('Invalid token');
   }
 }
