@@ -10,10 +10,6 @@ export interface ShortLink {
   isDeleted?: boolean;
 }
 
-export interface AppSettings {
-  baseUrl: string;
-}
-
 export interface SlugSuggestionResponse {
   suggestions: string[];
 }
