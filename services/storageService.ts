@@ -59,16 +59,10 @@ export const StorageService = {
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    // Map camelCase to snake_case for API
-    const payload = {
-      ...link,
-      is_personalized: link.isPersonalized
-    };
-
     const response = await fetchWithRetry(`${API_BASE}/links`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(link)
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -90,7 +84,7 @@ export const StorageService = {
         originalUrl: updatedLink.originalUrl,
         description: updatedLink.description,
         clicks: updatedLink.clicks,
-        is_deleted: updatedLink.isDeleted 
+        isDeleted: updatedLink.isDeleted
       })
     });
     if (!response.ok) {

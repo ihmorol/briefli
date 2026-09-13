@@ -4,6 +4,7 @@ import { requireUser } from './_lib/auth.js';
 import { canModify } from './_lib/permissions.js';
 import { badRequest, conflict, forbidden, notFound } from './_lib/apiError.js';
 import { LinkSchema, UpdateLinkSchema } from './schema.js';
+import { toDomain, toRowPatch, type LinkRow } from './_lib/linkRecord.js';
 import { withApi } from './_lib/withApi.js';
 
 async function linksHandler(req: VercelRequest, res: VercelResponse) {
@@ -30,17 +31,9 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
 
       if (error) throw error;
 
-      const formattedLinks = links.map(link => ({
-        id: link.id,
-        slug: link.slug,
-        originalUrl: link.original_url,
-        description: link.description,
-        createdAt: link.created_at,
-        clicks: link.clicks,
-        userId: link.user_id,
-        isPersonalized: link.is_personalized,
-        isDeleted: link.is_deleted
-      }));
+      // DB-typing seam: Supabase returns untyped rows; casting to LinkRow here
+      // is the one place a DB row is allowed to enter the domain model.
+      const formattedLinks = (links as LinkRow[]).map(toDomain);
       return res.status(200).json(formattedLinks);
     }
 
@@ -54,7 +47,7 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
         throw badRequest(validation.error.issues[0].message);
       }
 
-      const { slug, originalUrl, description, is_personalized } = validation.data;
+      const { slug, originalUrl, description, isPersonalized } = validation.data;
 
       // Check for duplicates
       const { data: existing } = await supabase
@@ -67,36 +60,29 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
         throw conflict('Slug already exists');
       }
 
-      // user_id is server-owned: personalized links are always bound to the
+      // userId is server-owned: personalized links are always bound to the
       // authenticated caller, never to a client-supplied id.
-      const newLink = {
+      const insertRow = toRowPatch({
         slug,
-        original_url: originalUrl,
+        originalUrl,
         description: description || '',
         clicks: 0,
-        user_id: is_personalized ? userId : null,
-        is_personalized: !!is_personalized,
-        is_deleted: false
-      };
+        userId: isPersonalized ? userId : null,
+        isPersonalized: !!isPersonalized,
+        isDeleted: false
+      });
 
       const { data: inserted, error } = await supabase
         .from('links')
-        .insert(newLink)
+        .insert(insertRow)
         .select()
         .single();
 
       if (error) throw error;
 
-      return res.status(201).json({
-        id: inserted.id,
-        slug: inserted.slug,
-        originalUrl: inserted.original_url,
-        description: inserted.description,
-        createdAt: inserted.created_at,
-        clicks: inserted.clicks,
-        isPersonalized: inserted.is_personalized,
-        isDeleted: inserted.is_deleted
-      });
+      // DB-typing seam: Supabase returns untyped rows; the cast to LinkRow is
+      // the one place a DB row is allowed to enter the domain model.
+      return res.status(201).json(toDomain(inserted as LinkRow));
     }
 
     case 'PUT': {
@@ -107,7 +93,7 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
         throw badRequest(validation.error.issues[0].message);
       }
 
-      const { id, slug, originalUrl, description, is_deleted } = validation.data;
+      const { id, slug, originalUrl, description, isDeleted } = validation.data;
 
       // Fetch existing to check permissions
       const { data: existing } = await supabase
@@ -139,16 +125,13 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
 
       // SECURITY: `clicks` is a server-owned counter and is stripped from
       // client-supplied update payloads
-      const updates: any = {
+      // Handle Restore: only touch is_deleted when the client sent it
+      const updates = toRowPatch({
         slug,
-        original_url: originalUrl,
-        description
-      };
-
-      // Handle Restore
-      if (typeof is_deleted === 'boolean') {
-        updates.is_deleted = is_deleted;
-      }
+        originalUrl,
+        description,
+        isDeleted: typeof isDeleted === 'boolean' ? isDeleted : undefined
+      });
 
       const { error } = await supabase
         .from('links')
@@ -188,7 +171,7 @@ async function linksHandler(req: VercelRequest, res: VercelResponse) {
       // Soft Delete
       const { error } = await supabase
         .from('links')
-        .update({ is_deleted: true })
+        .update(toRowPatch({ isDeleted: true }))
         .eq('id', id);
 
       if (error) throw error;

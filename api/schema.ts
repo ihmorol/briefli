@@ -23,9 +23,9 @@ export const LinkSchema = z.object({
     .refine(url => !isSelfReferencing(url), "Cannot create link pointing to this shortlink service (redirect loop)"),
   description: z.string().max(500, "Description is too long").optional(),
   clicks: z.number().int().nonnegative().optional(),
-  user_id: z.string().optional(),
-  is_personalized: z.boolean().default(false),
-  is_deleted: z.boolean().default(false)
+  userId: z.string().optional(),
+  isPersonalized: z.boolean().default(false),
+  isDeleted: z.boolean().default(false)
 });
 
 export const UpdateLinkSchema = LinkSchema.extend({
