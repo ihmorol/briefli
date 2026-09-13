@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -15,6 +15,9 @@ interface ToastContextType {
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
+
+// Auto dismiss after 5 seconds
+const TOAST_DURATION_MS = 5000;
 
 export const useToast = () => {
   const context = useContext(ToastContext);
@@ -58,14 +61,17 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const newToast = { id, type, message };
     setToasts(prev => [...prev, newToast]);
 
-    // Auto dismiss after 3 seconds
     setTimeout(() => {
       removeToast(id);
-    }, 5000);
+    }, TOAST_DURATION_MS);
   }, [removeToast]);
 
+  // Stable identity: a fresh object here would defeat every consumer's
+  // memoization and re-render the tree on each toast.
+  const contextValue = useMemo(() => ({ addToast, removeToast }), [addToast, removeToast]);
+
   return (
-    <ToastContext.Provider value={{ addToast, removeToast }}>
+    <ToastContext.Provider value={contextValue}>
       {children}
       
       {/* Toast Container */}

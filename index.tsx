@@ -9,6 +9,7 @@ if (!rootElement) {
 }
 
 import { ToastProvider } from './context/ToastContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
@@ -35,7 +36,9 @@ root.render(
       }}
     >
       <ToastProvider>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </ToastProvider>
     </ClerkProvider>
   </React.StrictMode>
